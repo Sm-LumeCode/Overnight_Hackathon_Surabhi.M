@@ -2,6 +2,8 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // FIX: Add 'baseUrl' to define the root for path mapping.
+    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
@@ -13,5 +15,5 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
-  ]
+, "scripts/testGemini.js"  ]
 }
