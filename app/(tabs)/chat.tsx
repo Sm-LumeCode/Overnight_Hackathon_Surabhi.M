@@ -1,211 +1,235 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+} from "react-native";
 import * as Speech from "expo-speech";
 import { recommendLoanType } from "../../src/loanType";
 
-export default function ChatScreen() {
-  const [messages, setMessages] = useState<{ id: string; from: string; text: string }[]>([]);
-  const [input, setInput] = useState("");
-  const [loanStep, setLoanStep] = useState(0);
+type Msg = { id: string; from: "user" | "ai"; text: string };
 
-  const [loanPurpose, setLoanPurpose] = useState("");
+export default function ChatScreen() {
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [input, setInput] = useState("");
+  const [loanStep, setLoanStep] = useState<0 | 1 | 2 | 3 | 4>(0);
+
+  const [loanPurpose, setLoanPurpose] = useState<string>("");
   const [loanAmount, setLoanAmount] = useState<number | null>(null);
   const [hasCollateral, setHasCollateral] = useState<boolean | null>(null);
+  const [lastAiMessage, setLastAiMessage] = useState("");
 
-  // -------------------------------------
-  // HANDLE MESSAGE SEND
-  // -------------------------------------
-  const sendMessage = () => {
-    if (!input.trim()) return;
+  const addMessage = (from: "user" | "ai", text: string) => {
+    const msg: Msg = { id: Date.now().toString() + Math.random(), from, text };
+    setMessages((prev) => [...prev, msg]);
+    if (from === "ai") setLastAiMessage(text);
+  };
 
-    const userMsg = {
-      id: Date.now().toString(),
-      from: "user",
-      text: input,
-    };
-    setMessages((prev) => [...prev, userMsg]);
+  const handleSend = () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
 
-    handleLoanFlow(input.trim().toLowerCase());
+    addMessage("user", trimmed);
+    handleLoanFlow(trimmed.toLowerCase());
     setInput("");
   };
 
-  // -------------------------------------
-  // LOAN QUESTION LOGIC (MAIN PART)
-  // -------------------------------------
   const handleLoanFlow = (userInput: string) => {
-
-    // Step 0 → Ask purpose
+    // Step 0: start flow
     if (loanStep === 0) {
-      const aiMsg = {
-        id: Date.now().toString() + "_ai",
-        from: "ai",
-        text:
-          "Great! First, what is the purpose of your loan?\n\nOptions:\n• education\n• home_purchase\n• home_rent\n• business\n• vehicle\n• medical\n• debt_consolidation\n• other",
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      addMessage(
+        "ai",
+        "Welcome! Let's understand which loan fits you.\n\nFirst, what is the purpose of your loan?\nOptions: education, home_purchase, home_rent, business, vehicle, medical, debt_consolidation, other."
+      );
       setLoanStep(1);
       return;
     }
 
-    // Step 1 → User answers purpose
+    // Step 1: purpose
     if (loanStep === 1) {
       setLoanPurpose(userInput);
-
-      const aiMsg = {
-        id: Date.now().toString() + "_ai",
-        from: "ai",
-        text: "How much loan amount do you need? (Enter numbers only)",
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      addMessage(
+        "ai",
+        "Got it. Approximately how much loan amount do you need? (only numbers, in rupees)"
+      );
       setLoanStep(2);
       return;
     }
 
-    // Step 2 → User answers amount
+    // Step 2: amount
     if (loanStep === 2) {
-      const amount = Number(userInput);
-      if (isNaN(amount)) {
-        const aiMsg = {
-          id: Date.now().toString() + "_ai",
-          from: "ai",
-          text: "Please enter a valid number for the amount.",
-        };
-        setMessages((prev) => [...prev, aiMsg]);
+      const amount = Number(userInput.replace(/[^0-9]/g, ""));
+      if (isNaN(amount) || amount <= 0) {
+        addMessage("ai", "Please enter a valid number for the amount.");
         return;
       }
       setLoanAmount(amount);
-
-      const aiMsg = {
-        id: Date.now().toString() + "_ai",
-        from: "ai",
-        text: "Do you have any collateral? (yes / no)",
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      addMessage(
+        "ai",
+        "Do you have any collateral (property/vehicle) to keep as security? (yes / no)"
+      );
       setLoanStep(3);
       return;
     }
 
-    // Step 3 → User answers collateral
+    // Step 3: collateral
     if (loanStep === 3) {
-      setHasCollateral(userInput === "yes");
+      const hasCol =
+        userInput.includes("yes") ||
+        userInput.includes("ha") ||
+        userInput.includes("haan") ||
+        userInput.includes("houdu");
+      setHasCollateral(hasCol);
 
-      // Now we have all 3 values → generate loan type
-      const result = recommendLoanType({
-        purpose: loanPurpose as any,
+      const recommendation = recommendLoanType({
+        purpose: (loanPurpose || "other") as any,
         amount: loanAmount || 0,
-        hasCollateral: userInput === "yes",
+        hasCollateral: hasCol,
       });
 
-      const aiMsg = {
-        id: Date.now().toString() + "_ai",
-        from: "ai",
-        text:
-          `Based on your answers, the best loan for you is:\n\n` +
-          `👉 **${result.loanType}**\n\n` +
-          `If you want to try again, type "restart".`,
-      };
+      let explanation =
+        `Based on your answers, the most suitable loan for you is:\n\n` +
+        `👉 ${recommendation.loanType}\n\n`;
 
-      setMessages((prev) => [...prev, aiMsg]);
+      if (recommendation.subtype) {
+        explanation += `Type: ${recommendation.subtype}\n\n`;
+      }
+
+      explanation +=
+        `This is a rough suggestion. In the full app, the AI will explain documents, interest range, and next steps in your language.\n\n` +
+        `If you want to try again with different details, type "restart".`;
+
+      addMessage("ai", explanation);
       setLoanStep(4);
       return;
     }
 
-    // Step 4 → Restart flow
-    if (loanStep === 4 && userInput === "restart") {
+    // Step 4: restart
+    if (loanStep === 4 && userInput.includes("restart")) {
       setLoanPurpose("");
       setLoanAmount(null);
       setHasCollateral(null);
       setLoanStep(0);
-
-      const aiMsg = {
-        id: Date.now().toString() + "_ai",
-        from: "ai",
-        text: "Loan process restarted. Tell me again, what is your loan purpose?",
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      addMessage("ai", "Loan flow restarted. Tell me your loan purpose again.");
       return;
     }
 
-    // If user types random things
-    const aiMsg = {
-      id: Date.now().toString() + "_ai",
-      from: "ai",
-      text: "Please follow the instructions or type 'restart' to begin again.",
-    };
-    setMessages((prev) => [...prev, aiMsg]);
+    addMessage(
+      "ai",
+      'Please follow the steps or type "restart" to start over.'
+    );
   };
 
-  // -------------------------------------
-  // TEXT-TO-SPEECH
-  // -------------------------------------
-  const handleSpeak = (text: string) => {
-    Speech.speak(text, { language: "en" });
+  const handleSpeak = () => {
+    if (!lastAiMessage) return;
+    Speech.stop();
+    Speech.speak(lastAiMessage, {
+      language: "en-IN",
+      rate: 1.0,
+      pitch: 1.0,
+    });
   };
 
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Loan Advisor Chat</Text>
+        <TouchableOpacity style={styles.speakBtn} onPress={handleSpeak}>
+          <Text style={styles.speakText}>Speak</Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         data={messages}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <TouchableOpacity onLongPress={() => handleSpeak(item.text)}>
-            <Text style={item.from === "ai" ? styles.aiText : styles.userText}>
+          <View
+            style={[
+              styles.bubble,
+              item.from === "user" ? styles.userBubble : styles.aiBubble,
+            ]}
+          >
+            <Text
+              style={{
+                color: item.from === "user" ? "white" : "#111827",
+              }}
+            >
               {item.text}
             </Text>
-          </TouchableOpacity>
+          </View>
         )}
-        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingVertical: 8 }}
       />
 
-      <View style={styles.inputBox}>
+      <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
+          placeholder="Type your message..."
           value={input}
           onChangeText={setInput}
-          placeholder="Type here..."
         />
-        <TouchableOpacity onPress={sendMessage} style={styles.sendBtn}>
-          <Text style={{ color: "#fff" }}>Send</Text>
+        <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
+          <Text style={styles.sendText}>Send</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-// -------------------------------------
-// STYLES
-// -------------------------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, paddingTop: 40 },
-  aiText: {
-    backgroundColor: "#eee",
-    padding: 12,
-    marginVertical: 4,
-    borderRadius: 8,
-  },
-  userText: {
-    backgroundColor: "#4f79ff",
-    padding: 12,
-    marginVertical: 4,
-    color: "white",
-    alignSelf: "flex-end",
-    borderRadius: 8,
-  },
-  inputBox: {
+  container: { flex: 1, paddingTop: 40, paddingHorizontal: 16, backgroundColor: "#f3f4f6" },
+  header: {
     flexDirection: "row",
-    marginTop: 10,
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  title: { fontSize: 18, fontWeight: "700" },
+  speakBtn: {
+    backgroundColor: "#f97316",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  speakText: { color: "white", fontWeight: "600", fontSize: 12 },
+  bubble: {
+    marginVertical: 4,
+    padding: 10,
+    borderRadius: 10,
+    maxWidth: "80%",
+  },
+  userBubble: {
+    alignSelf: "flex-end",
+    backgroundColor: "#2563eb",
+  },
+  aiBubble: {
+    alignSelf: "flex-start",
+    backgroundColor: "#e5e7eb",
+  },
+  inputRow: {
+    flexDirection: "row",
+    marginTop: 8,
+    marginBottom: 12,
   },
   input: {
     flex: 1,
+    backgroundColor: "white",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
+    borderColor: "#d1d5db",
   },
   sendBtn: {
-    backgroundColor: "black",
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    marginLeft: 10,
-    borderRadius: 8,
+    marginLeft: 8,
+    backgroundColor: "#16a34a",
+    paddingHorizontal: 14,
+    justifyContent: "center",
+    borderRadius: 10,
   },
+  sendText: { color: "white", fontWeight: "600" },
 });
+
